@@ -33,7 +33,10 @@ class SignDetector(Node):
             y_max  = bounding_box[3]
             x_center = int((x_min+x_max)/2)
             y_center = int((y_min+y_max)/2)
-            self.publisher.publish(x_center, y_center)
+            msg = Point()
+            msg.x = x_center
+            msg.y = y_center
+            self.publisher.publish(msg)
 
 
 
