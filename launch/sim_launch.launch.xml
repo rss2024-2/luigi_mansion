@@ -1,0 +1,11 @@
+<launch>
+    <node pkg="luigi_mansion" exec="plan" name="plan" output="screen">
+        <param from="$(find-pkg-share luigi_mansion)/config/sim_config.yaml"/>
+    </node>
+    <node pkg="luigi_mansion" exec="follow" name="follow" output="screen">
+        <param from="$(find-pkg-share luigi_mansion)/config/sim_config.yaml"/>
+    </node>
+    <node pkg="localization" exec="particle_filter" name="particle_filter" output="screen">
+        <param from="$(find-pkg-share path_planning)/config/sim/pf_sim_config.yaml"/>
+    </node>
+</launch>

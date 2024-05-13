@@ -1,0 +1,18 @@
+<launch>
+    <node pkg="luigi_mansion" exec="basement_point_publisher" name="basement_point_publisher" output="screen"></node>
+    <node pkg="luigi_mansion" exec="load_lane" name="load_lane" output="screen">
+        <param name="path" value="/root/racecar_ws/src/luigi_mansion/lanes/cabinet.traj" />
+        <param name="vis_topic" value="/cabinet_viz" />
+        <param name="pub_topic" value="/cabinet" />
+    </node>
+    <node pkg="luigi_mansion" exec="load_lane" name="load_lane" output="screen">
+        <param name="path" value="/root/racecar_ws/src/luigi_mansion/lanes/full-lane.traj" />
+        <param name="vis_topic" value="/lane_viz" />
+        <param name="pub_topic" value="/lane" />
+    </node>
+    <node pkg="luigi_mansion" exec="load_lane" name="load_lane" output="screen">
+        <param name="path" value="/root/racecar_ws/src/luigi_mansion/lanes/stata_top.traj" />
+        <param name="vis_topic" value="/top_viz" />
+        <param name="pub_topic" value="/top" />
+    </node>
+</launch>

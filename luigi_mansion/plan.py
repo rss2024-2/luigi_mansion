@@ -1,6 +1,6 @@
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped, PoseArray, Pose
+from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped, PoseArray, Pose, Point
 from nav_msgs.msg import OccupancyGrid
 from .utils import LineTrajectory
 from scipy import ndimage
@@ -13,7 +13,7 @@ class PathPlan(Node):
     """
 
     def __init__(self):
-        super().__init__("trajectory_planner")
+        super().__init__("plan")
         self.declare_parameter('odom_topic', "/odom")
         self.declare_parameter('map_topic', "/map")
         self.declare_parameter('initial_pose_topic', "/initialpose")
@@ -28,10 +28,10 @@ class PathPlan(Node):
             self.map_cb,
             1)
 
-        self.goal_sub = self.create_subscription(
-            PoseStamped,
-            "/goal_pose",
-            self.goal_cb,
+        self.shell_sub = self.create_subscription(
+            PoseArray,
+            "/shell_points",
+            self.shell_cb,
             10
         )
 
@@ -48,9 +48,46 @@ class PathPlan(Node):
             10
         )
 
+        self.lane_sub = self.create_subscription(
+            PoseArray,
+            '/lane',
+            self.obstacle_cb,
+            10
+        )
+
+        # self.cabinet_sub = self.create_subscription(
+        #     PoseArray,
+        #     '/cabinet',
+        #     self.obstacle_cb,
+        #     10
+        # )
+
+        # self.cabinet_sub = self.create_subscription(
+        #     PoseArray,
+        #     '/top',
+        #     self.obstacle_cb,
+        #     10
+        # )
+
+
         self.map = None
         self.way_point = []
         self.trajectory = LineTrajectory(node=self, viz_namespace="/planned_trajectory")
+
+    def obstacle_cb(self,msg):
+
+        self.get_logger().info(f"Received lane")
+
+        traj=LineTrajectory("/lane")
+        traj.clear()
+        traj.fromPoseArray(msg)
+
+        self.lane=traj
+
+        for i in range(len(traj.points)-1):
+            for (x,y) in zip(np.linspace(traj.points[i][0],traj.points[i+1][0],1000),np.linspace(traj.points[i][1],traj.points[i+1][1],1000)):
+                u,v=self.xy_to_uv(x,y)
+                self.map[v][u]=1
 
     def map_cb(self, msg):
         self.get_logger().info("Map called")
@@ -71,7 +108,7 @@ class PathPlan(Node):
         # Reshape occupancy data into a 2D numpy array
         occupancy_grid = np.array(occupancy_data).reshape((height, width))
         # Define the radius of the disk element
-        radius = 10
+        radius = 5
 
 # Create a disk-shaped structuring element
 # The structuring element is a square array where pixels outside the disk are set to zero
@@ -111,10 +148,38 @@ class PathPlan(Node):
         self.way_point = [pose.pose.pose.position]
         self.get_logger().info("Pose initialized")
 
-    def goal_cb(self, msg):
-        self.way_point.append(msg.pose.position)
-        self.get_logger().info(f"Got point #{len(self.way_point)-1}")
-        if self.map is not None and len(self.way_point)==4:
+    def shell_cb(self, msg):
+        
+        radius=2
+        structure_element = np.zeros((2 * radius + 1, 2 * radius + 1))
+        y, x = np.ogrid[-radius:radius + 1, -radius:radius + 1]
+        mask = x**2 + y**2 <= radius**2
+        structure_element[mask] = 1
+            # Perform erosion
+        self.map = ndimage.binary_dilation(self.map, structure=structure_element)
+        
+        for pose in msg.poses:
+            self.way_point.append(pose.position)
+        self.get_logger().info(f"Got Shells")
+        if self.map is not None:
+            # x1=self.lane.points[-2][0]-self.way_point[-2].x
+            # y1=self.lane.points[-2][1]-self.way_point[-2].y
+            # sp1=np.array([x1,y1])
+            # sx=self.lane.points[-1][0]-self.lane.points[-2][0]
+            # sy=self.lane.points[-1][1]-self.lane.points[-2][1]
+            # d=np.array([sx,sy])
+            # qa=d.dot(d)
+            # qb=2*sp1.dot(d)
+
+            # t=-qb/(2*qa)
+            # cx=x1+t*sx
+            # cy=y1+t*sy
+            # point=Point()
+            # point.x=2*cx+self.way_point[-2].x
+            # point.y=2*cy+self.way_point[-2].y
+            # print(point.x,point.y)
+            # self.way_point.append(point)
+
             self.way_point.append(self.way_point[0])
             path = self.plan_path(self.map)
             self.publish_trajectory(path)
@@ -136,7 +201,7 @@ class PathPlan(Node):
                 current_cost, current_node = heapq.heappop(frontier)
 
 
-                if heuristic(current_node, goal)*self.resolution <= 0.5:
+                if heuristic(current_node, goal)*self.resolution <= 0.8:
                     self.get_logger().info("found goal")
                     goal=current_node
                     break
@@ -152,6 +217,8 @@ class PathPlan(Node):
             path = []
             current_node = goal
             while current_node != start:
+                # if len(path)>=2 and (current_node[0]-path[-2][0])*(path[-1][1]-path[-2][1])-(current_node[1]-path[-2][1])*(path[-1][0]-path[-2][0])==0:
+                #    path=path[:-1]
                 path.append(current_node)
                 current_node = came_from[current_node]
             path.append(start)
@@ -186,9 +253,12 @@ class PathPlan(Node):
         path=[]
 
         for i in range(len(self.way_point)-1):
-            pixel_start = self.xy_to_uv(self.way_point[i].x, self.way_point[i].y)
+            if i==0:
+                pixel_start=self.xy_to_uv(self.way_point[i].x,self.way_point[i].y)
+            else:
+                pixel_start=path[-1]
             pixel_end = self.xy_to_uv(self.way_point[i+1].x, self.way_point[i+1].y)
-            path.extend(a_star_search(graph, pixel_start, pixel_end))
+            path.extend(a_star_search(graph, pixel_start, pixel_end)[0 if i==0 else 1:])
         return path
 
     def publish_trajectory(self, path):
